@@ -26,6 +26,17 @@ const ADMOB_APP_ID = defineString("ADMOB_APP_ID", { default: "ca-app-pub-9104124
 const UNITY_ORG_ID = defineString("UNITY_ORG_ID", { default: "" });
 const UNITY_GAME_ID = defineString("UNITY_GAME_ID", { default: "" });
 
+/** No source may hold the page: past this it fails alone and the rest still arrive. */
+const SOURCE_DEADLINE_MS = 20000;
+
+function withDeadline(promise, ms) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("No respondió en " + ms / 1000 + " s.")), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
 /** How long each answer is reused, in minutes. Play is days behind anyway. */
 const TTL = { realtime: 1, analytics: 10, admob: 30, unity: 30, playVitals: 360, playReports: 360 };
 
@@ -45,7 +56,7 @@ async function cached(key, minutes, force, load) {
     }
   }
   try {
-    const data = await load();
+    const data = await withDeadline(load(), SOURCE_DEADLINE_MS);
     const at = Date.now();
     await ref.set({ at, json: JSON.stringify(data) });
     return { ok: true, at, cached: false, data };
@@ -60,7 +71,7 @@ async function cached(key, minutes, force, load) {
 exports.stats = onCall(
   {
     region: "us-central1",
-    timeoutSeconds: 60,
+    timeoutSeconds: 90,
     memory: "256MiB",
     maxInstances: 2,
     secrets: [OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_REFRESH_TOKEN, UNITY_API_KEY],

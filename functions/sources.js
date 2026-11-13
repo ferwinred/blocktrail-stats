@@ -21,13 +21,13 @@ const TESTER_FILTER = { notExpression: { filter: { fieldName: TESTER_DIMENSION, 
 class SourceError extends Error {}
 
 /** fetch with JSON, retrying Google's own 5xx hiccups twice. */
-async function call(token, url, body, { raw = false } = {}) {
+async function call(token, url, body, { raw = false, timeoutMs = 18000 } = {}) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, {
       method: body === undefined ? "GET" : "POST",
       headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (res.ok) return raw ? res : res.json();
     if (res.status >= 500 && attempt < 2) {
@@ -58,14 +58,16 @@ const range = (days) => [{ startDate: days + "daysAgo", endDate: "yesterday" }];
 
 async function analytics(token, property) {
   const prop = "properties/" + property;
+  // Whether testers can be left out: a 400 means the dimension is not registered yet.
+  // Asked with a short timeout, so a slow Analytics does not spend the source's whole budget here.
   let excludeTesters = false;
   let testers = null;
   try {
     testers = rowsOf(await call(token, `${DATA_API}/${prop}:runReport`, {
       dateRanges: range(28), dimensions: [{ name: TESTER_DIMENSION }], metrics: [{ name: "activeUsers" }],
-    }));
+    }, { timeoutMs: 6000 }));
     excludeTesters = true;
-  } catch { /* the dimension is not registered yet: report everyone */ }
+  } catch { /* not registered, or Analytics is slow: report everyone */ }
 
   const report = (body) => {
     if (excludeTesters) {
