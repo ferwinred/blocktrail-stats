@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>BlockTrail Estadísticas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800&family=Inter:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <h1>BlockTrail</h1>
+        <p class="sub">Estadísticas del juego</p>
+      </div>
+    </div>
+    <div class="session" id="session" hidden>
+      <span id="who" class="muted"></span>
+      <button id="refresh" class="btn">Actualizar</button>
+      <button id="logout" class="btn ghost">Salir</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="login" class="card login" hidden>
+      <h2>Inicia sesión</h2>
+      <p class="muted">Solo las cuentas autorizadas pueden ver las estadísticas.</p>
+      <button id="signin" class="btn primary">Entrar con Google</button>
+      <p id="login-error" class="error" hidden></p>
+    </section>
+
+    <section id="app" hidden>
+      <p id="status" class="muted small"></p>
+
+      <h2 class="section">Ahora mismo <span class="pill live">en vivo · últimos 30 min</span></h2>
+      <div class="grid">
+        <div class="card kpi"><span class="label">Jugando ahora</span><span class="value" id="rt-active">—</span></div>
+        <div class="card kpi"><span class="label">Instalaciones nuevas</span><span class="value" id="rt-installs">—</span></div>
+        <div class="card kpi"><span class="label">Niveles ganados / perdidos</span><span class="value" id="rt-levels">—</span></div>
+        <div class="card kpi"><span class="label">Anuncios vistos</span><span class="value" id="rt-ads">—</span></div>
+      </div>
+      <p class="muted small" id="rt-countries"></p>
+      <p class="error" id="err-realtime" hidden></p>
+
+      <h2 class="section">Jugadores <span class="pill">Google Analytics · 7 días</span></h2>
+      <p class="muted small" id="testers-note"></p>
+      <div class="grid">
+        <div class="card kpi"><span class="label">Jugadores activos</span><span class="value" id="ga-active">—</span><span class="delta" id="ga-active-d"></span></div>
+        <div class="card kpi"><span class="label">Instalaciones nuevas</span><span class="value" id="ga-new">—</span><span class="delta" id="ga-new-d"></span></div>
+        <div class="card kpi"><span class="label">Minutos por jugador</span><span class="value" id="ga-min">—</span><span class="delta" id="ga-min-d"></span></div>
+        <div class="card kpi"><span class="label">Niveles ganados</span><span class="value" id="ga-win">—</span><span class="delta muted">de los terminados</span></div>
+        <div class="card kpi"><span class="label">Vuelven al día siguiente</span><span class="value" id="ga-d1">—</span><span class="delta muted" id="ga-d1-n"></span></div>
+        <div class="card kpi"><span class="label">Siguen a la semana</span><span class="value" id="ga-d7">—</span><span class="delta muted" id="ga-d7-n"></span></div>
+      </div>
+      <p class="error" id="err-analytics" hidden></p>
+
+      <div class="card chart-card">
+        <div class="chart-head">
+          <h3>Jugadores por día</h3>
+          <div class="legend"><span><i class="sw s0"></i>Activos</span><span><i class="sw s1"></i>Nuevos (Analytics)</span><span><i class="sw s2"></i>Instalaciones (Play)</span></div>
+        </div>
+        <div id="chart" class="chart"></div>
+      </div>
+
+      <h2 class="section">Ingresos <span class="pill">7 días</span></h2>
+      <div class="grid">
+        <div class="card kpi"><span class="label">AdMob</span><span class="value" id="ad-earn">—</span><span class="delta muted" id="ad-imps"></span></div>
+        <div class="card kpi"><span class="label">eCPM AdMob</span><span class="value" id="ad-ecpm">—</span><span class="delta muted" id="ad-ctr"></span></div>
+        <div class="card kpi"><span class="label">Unity Ads</span><span class="value" id="un-rev">—</span><span class="delta muted" id="un-views"></span></div>
+        <div class="card kpi"><span class="label">Compras</span><span class="value" id="ga-buy">—</span><span class="delta muted" id="ga-buyers"></span></div>
+      </div>
+      <p class="error" id="err-admob" hidden></p>
+      <p class="error" id="err-unity" hidden></p>
+
+      <h2 class="section">Google Play <span class="pill">cifras oficiales · 1–3 días de retraso</span></h2>
+      <div class="grid">
+        <div class="card kpi"><span class="label">Instalaciones</span><span class="value" id="pl-inst">—</span><span class="delta muted" id="pl-inst-n"></span></div>
+        <div class="card kpi"><span class="label">Desinstalaciones</span><span class="value" id="pl-uninst">—</span><span class="delta muted">7 días</span></div>
+        <div class="card kpi"><span class="label">Fallos y ANR</span><span class="value" id="pl-crash">—</span><span class="delta muted">7 días</span></div>
+        <div class="card kpi"><span class="label">Tasa de fallos</span><span class="value" id="pl-rate">—</span><span class="delta muted" id="pl-rate-n"></span></div>
+      </div>
+      <p class="error" id="err-playReports" hidden></p>
+      <p class="error" id="err-playVitals" hidden></p>
+
+      <div class="two">
+        <div class="card"><h3>Países <span class="muted small">28 días</span></h3><div class="table-wrap"><table id="t-countries"><thead><tr><th>País</th><th>Activos</th><th>Nuevos</th><th>Min. por jugador</th></tr></thead><tbody></tbody></table></div></div>
+        <div class="card"><h3>Versiones <span class="muted small">7 días</span></h3><div class="table-wrap"><table id="t-versions"><thead><tr><th>Versión</th><th>Activos</th></tr></thead><tbody></tbody></table></div></div>
+      </div>
+      <div class="card"><h3>Qué hacen los jugadores</h3><div class="table-wrap"><table id="t-events"><thead><tr><th>Evento</th><th>Veces · 7 días</th><th>Jugadores · 7 días</th><th>Veces · 28 días</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="card"><h3>AdMob por formato <span class="muted small">7 días</span></h3><div class="table-wrap"><table id="t-formats"><thead><tr><th>Formato</th><th>Impresiones</th><th>Clics</th><th>Ingresos</th></tr></thead><tbody></tbody></table></div></div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
