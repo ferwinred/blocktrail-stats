@@ -265,13 +265,23 @@ async function unity(apiKey, orgId, gameId) {
   const start = new Date(end.getTime() - 30 * 86400000);
   const params = new URLSearchParams({
     fields: "adrequest_count,available_sum,revenue_sum,start_count,view_count",
-    scale: "day", start: start.toISOString(), end: end.toISOString(), apikey: apiKey,
+    scale: "day", start: start.toISOString(), end: end.toISOString(),
   });
   if (gameId) params.set("gameIds", gameId);
-  const res = await fetch(`https://monetization.api.unity.com/stats/v1/operate/organizations/${orgId}?${params}`, {
-    headers: { Accept: "text/csv" }, signal: AbortSignal.timeout(25000),
+  const url = `https://monetization.api.unity.com/stats/v1/operate/organizations/${orgId}`;
+  // Unity takes the key as a header or as ?apikey=; the header first, the query as a second try.
+  let res = await fetch(`${url}?${params}`, {
+    headers: { Accept: "text/csv", Authorization: "Token " + apiKey }, signal: AbortSignal.timeout(18000),
   });
-  if (!res.ok) throw new SourceError(res.status + " " + (await res.text()).slice(0, 200));
+  if (res.status === 401) {
+    params.set("apikey", apiKey);
+    res = await fetch(`${url}?${params}`, { headers: { Accept: "text/csv" }, signal: AbortSignal.timeout(18000) });
+  }
+  if (!res.ok) {
+    const hint = { 401: " (Unity no acepta la clave: revisa que sea la de «Monetization Stats API Access» y que tu usuario tenga rol de propietario o gestor)",
+                   404: " (Unity no encuentra la organización: revisa UNITY_ORG_ID, el «Organization core ID» de Monetización ▸ Configuración)" }[res.status] || "";
+    throw new SourceError(res.status + " " + (await res.text()).slice(0, 160) + hint);
+  }
   const rows = parseCsv(await res.text()).map((r) => ({
     date: (r.timestamp || r.date || "").slice(0, 10),
     requests: Number(r.adrequest_count || 0), starts: Number(r.start_count || 0),
