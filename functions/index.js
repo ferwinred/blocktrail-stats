@@ -87,13 +87,19 @@ exports.stats = onCall(
     const force = !!(request.data && request.data.force);
     const want = (name) => !only || only.includes(name);
 
-    const oauth = new OAuth2Client(OAUTH_CLIENT_ID.value(), OAUTH_CLIENT_SECRET.value());
-    oauth.setCredentials({ refresh_token: OAUTH_REFRESH_TOKEN.value() });
+    // Trimmed: a value pasted at a prompt easily carries a space or a line break.
+    const oauth = new OAuth2Client(OAUTH_CLIENT_ID.value().trim(), OAUTH_CLIENT_SECRET.value().trim());
+    oauth.setCredentials({ refresh_token: OAUTH_REFRESH_TOKEN.value().trim() });
     let google;
     try {
       google = (await oauth.getAccessToken()).token;
     } catch (err) {
-      throw new HttpsError("failed-precondition", "La autorización de Google caducó o fue revocada: hay que renovar STATS_OAUTH_REFRESH_TOKEN.");
+      // Google says which part it refused: invalid_client is the id or secret, invalid_grant the refresh token.
+      const reason = String((err.response && err.response.data && err.response.data.error) || err.message || err);
+      console.error("OAuth token exchange failed:", reason);
+      throw new HttpsError("failed-precondition", reason.includes("invalid_client")
+        ? "Google rechazó el cliente OAuth: revisa STATS_OAUTH_CLIENT_ID y STATS_OAUTH_CLIENT_SECRET."
+        : "La autorización de Google caducó o fue revocada (" + reason + "): hay que renovar STATS_OAUTH_REFRESH_TOKEN.");
     }
 
     const jobs = {
@@ -104,7 +110,7 @@ exports.stats = onCall(
       admob: () => sources.admob(google, ADMOB_APP_ID.value()),
       unity: () => {
         if (!UNITY_ORG_ID.value()) throw new Error("Falta UNITY_ORG_ID: el id de organización de Unity.");
-        return sources.unity(UNITY_API_KEY.value(), UNITY_ORG_ID.value(), UNITY_GAME_ID.value());
+        return sources.unity(UNITY_API_KEY.value().trim(), UNITY_ORG_ID.value(), UNITY_GAME_ID.value());
       },
     };
 
