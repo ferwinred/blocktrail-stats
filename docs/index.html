@@ -8,6 +8,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800&family=Inter:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="style.css">
+  <script>
+    // Before the page paints, so a saved choice never flashes the other theme first.
+    try { const t = localStorage.getItem("bt-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
 </head>
 <body>
   <header class="top">
@@ -18,10 +22,17 @@
         <p class="sub">Estadísticas del juego</p>
       </div>
     </div>
-    <div class="session" id="session" hidden>
-      <span id="who" class="muted"></span>
-      <button id="refresh" class="btn">Actualizar</button>
-      <button id="logout" class="btn ghost">Salir</button>
+    <div class="top-right">
+      <div class="theme" role="group" aria-label="Tema">
+        <button type="button" data-theme-choice="auto">Automático</button>
+        <button type="button" data-theme-choice="light">Claro</button>
+        <button type="button" data-theme-choice="dark">Oscuro</button>
+      </div>
+      <div class="session" id="session" hidden>
+        <span id="who" class="muted"></span>
+        <button id="refresh" class="btn">Actualizar</button>
+        <button id="logout" class="btn ghost">Salir</button>
+      </div>
     </div>
   </header>
 
@@ -78,6 +89,8 @@
 
       <h2 class="section">Google Play <span class="pill">cifras oficiales · 1–3 días de retraso</span></h2>
       <div class="grid">
+        <div class="card kpi"><span class="label">Descargas totales</span><span class="value" id="pl-total">—</span><span class="delta muted" id="pl-total-n"></span></div>
+        <div class="card kpi"><span class="label">Instalado ahora en</span><span class="value" id="pl-active">—</span><span class="delta muted">dispositivos</span></div>
         <div class="card kpi"><span class="label">Instalaciones</span><span class="value" id="pl-inst">—</span><span class="delta muted" id="pl-inst-n"></span></div>
         <div class="card kpi"><span class="label">Desinstalaciones</span><span class="value" id="pl-uninst">—</span><span class="delta muted">7 días</span></div>
         <div class="card kpi"><span class="label">Fallos y ANR</span><span class="value" id="pl-crash">—</span><span class="delta muted">7 días</span></div>

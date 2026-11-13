@@ -27,7 +27,22 @@ const EVENT_LABELS = {
 };
 const FORMATS = { interstitial: "Intersticial", rewarded: "Recompensa", rewarded_interstitial: "Bonificado intersticial", banner: "Banner", app_open: "Apertura" };
 
+// ---------------------------------------------------------------- theme
+
+function applyTheme(choice) {
+  if (choice === "light" || choice === "dark") document.documentElement.dataset.theme = choice;
+  else delete document.documentElement.dataset.theme;
+  try { localStorage.setItem("bt-theme", choice); } catch { /* private window: the choice lasts this visit */ }
+  document.querySelectorAll("[data-theme-choice]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeChoice === choice)));
+  // The chart takes its colours from the theme, so it is drawn again.
+  if (last) drawChart((source(last, "analytics") || {}).daily || [], (source(last, "playReports") || {}).installs || []);
+}
+let savedTheme = "auto";
+try { savedTheme = localStorage.getItem("bt-theme") || "auto"; } catch { /* no storage */ }
+document.querySelectorAll("[data-theme-choice]").forEach((b) => { b.onclick = () => applyTheme(b.dataset.themeChoice); });
+
 let last = null;
+applyTheme(savedTheme);
 let realtimeTimer = null;
 
 // ---------------------------------------------------------------- session
@@ -196,6 +211,12 @@ function renderAdmob(admob) {
 }
 
 function renderPlay(play) {
+  // Totals are running counts: the newest day that has them is the figure.
+  const withTotal = [...play.installs].reverse().find((r) => r.totalUsers != null);
+  $("pl-total").textContent = withTotal ? int(withTotal.totalUsers) : "—";
+  $("pl-total-n").textContent = withTotal ? "usuarios únicos desde el lanzamiento, al " + withTotal.date : "";
+  const withActive = [...play.installs].reverse().find((r) => r.activeDevices != null);
+  $("pl-active").textContent = withActive ? int(withActive.activeDevices) : "—";
   const inst = play.installs.slice(-7);
   $("pl-inst").textContent = int(inst.reduce((a, r) => a + (r.userInstalls || 0), 0));
   $("pl-inst-n").textContent = inst.length ? "7 días hasta el " + inst.at(-1).date : "";

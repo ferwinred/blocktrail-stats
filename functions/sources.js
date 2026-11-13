@@ -214,7 +214,8 @@ async function playReports(token, bucket) {
     for (const r of inst || []) {
       if (!r.Date) continue;
       installs.push({ date: r.Date, userInstalls: num(r["Daily User Installs"]), deviceInstalls: num(r["Daily Device Installs"]),
-                      userUninstalls: num(r["Daily User Uninstalls"]), activeDevices: num(r["Active Device Installs"]) });
+                      userUninstalls: num(r["Daily User Uninstalls"]), activeDevices: num(r["Active Device Installs"]),
+                      totalUsers: num(r["Total User Installs"]) });
     }
     const cr = await playCsv(token, bucket, `stats/crashes/crashes_${PACKAGE}_${m}_overview.csv`);
     for (const r of cr || []) {
