@@ -59,6 +59,9 @@ npx firebase-tools functions:secrets:set STATS_UNITY_API_KEY
   renovación (solo lectura de Analytics, Play, Cloud Storage y AdMob).
 - `STATS_UNITY_API_KEY`: Unity Cloud ▸ Monetization ▸ API management ▸ Monetization Stats API key.
 
+**Después de cambiar un secreto hay que volver a desplegar** (paso 6): Firebase fija la versión de
+cada secreto al desplegar, y la función sigue usando la anterior hasta entonces.
+
 ### 5. Parámetros
 Al desplegar, la CLI pregunta los que no tienen valor; los demás traen uno por defecto:
 `GA4_PROPERTY` (542428799), `PLAY_BUCKET`, `ADMOB_APP_ID`, `UNITY_ORG_ID` (id de
