@@ -1,8 +1,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
-import { firebaseConfig } from "./firebase-config.js?v=202611171600";
-import { change, cohortWeeks, datesOf, dayKey, funnel, inWindow, levelRows, SMALL, summary, windowsFor } from "./metrics.js?v=202611171600";
+import { firebaseConfig } from "./firebase-config.js?v=202611171800";
+import { change, cohortWeeks, datesOf, dayKey, funnel, inWindow, levelRows, SMALL, summary, windowsFor } from "./metrics.js?v=202611171800";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -102,6 +102,7 @@ onAuthStateChanged(auth, (user) => {
   clearInterval(realtimeTimer);
   $("session").hidden = !user;
   $("period").hidden = !user;
+  $("jump").hidden = !user;
   $("login").hidden = !!user;
   $("app").hidden = !user;
   if (!user) return;
@@ -524,6 +525,26 @@ function lineChart(box, pts, series, label) {
     ev.preventDefault();
     show(Math.max(0, Math.min(pts.length - 1, at + moves[ev.key])));
   });
+}
+
+// ---------------------------------------------------------------- section bar
+
+// The chip of the section in view is marked as the page scrolls.
+const jumpLinks = [...document.querySelectorAll("#jump a")];
+const watched = jumpLinks.map((a) => document.querySelector(a.getAttribute("href"))).filter(Boolean);
+if ("IntersectionObserver" in window) {
+  const seen = new Map();
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) seen.set(e.target.id, e.isIntersecting);
+    const first = watched.find((t) => seen.get(t.id));
+    if (!first) return;
+    for (const a of jumpLinks) {
+      const on = a.getAttribute("href") === "#" + first.id;
+      a.classList.toggle("on", on);
+      if (on) a.setAttribute("aria-current", "location"); else a.removeAttribute("aria-current");
+    }
+  }, { rootMargin: "-130px 0px -55% 0px" });
+  watched.forEach((t) => io.observe(t));
 }
 
 let resizeTimer = null;
