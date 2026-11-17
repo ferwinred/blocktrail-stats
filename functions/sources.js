@@ -118,7 +118,7 @@ async function analytics(token, property, period = 7) {
     .map((name) => ({ name }));
   const eventFilter = (values) => ({ filter: { fieldName: "eventName", inListFilter: { values } } });
 
-  const [daily, totals, events, countries, versions, firstSession, levels, expected] = await Promise.all([
+  const [daily, totals, events, countries, versions, firstSession, levels, expected, promoRows, campaignRows] = await Promise.all([
     // Both periods by day: the sparklines and the per-day sums (DAU-days) come from here.
     report({ dateRanges: [{ startDate: 2 * period + "daysAgo", endDate: "yesterday" }], dimensions: [{ name: "date" }],
              metrics: ["activeUsers", "newUsers", "sessions", "userEngagementDuration", "purchaseRevenue", "totalPurchasers"].map((name) => ({ name })),
@@ -140,6 +140,13 @@ async function analytics(token, property, period = 7) {
     // What the difficulty model expected: needs expected_win registered as a custom metric.
     optional(report, { dateRanges: [cur], dimensions: [{ name: "customEvent:level_id" }],
                        metrics: [{ name: "averageCustomEvent:expected_win" }], dimensionFilter: eventFilter(["level_complete", "level_fail"]), limit: 2000 }),
+    // Each promotion: shown, tapped, bought (needs promotion registered as an event-scoped dimension).
+    optional(report, { dateRanges: [cur], dimensions: [{ name: "customEvent:promotion" }, { name: "eventName" }],
+                       metrics: [{ name: "eventCount" }, { name: "totalUsers" }], dimensionFilter: eventFilter(PROMO_EVENTS), limit: 1000 }),
+    // Each campaign: the players who had it, and what they spent (needs active_event as a user-scoped dimension).
+    optional(report, { dateRanges: [cur], dimensions: [{ name: "customUser:active_event" }],
+                       metrics: ["activeUsers", "totalPurchasers", "purchaseRevenue", "totalAdRevenue", "userEngagementDuration"].map((name) => ({ name })),
+                       limit: 200 }),
   ]);
 
   const t = byRange(totals);
@@ -156,7 +163,29 @@ async function analytics(token, property, period = 7) {
     })),
     firstSession: { steps: FIRST_SESSION, cur: usersOf(fs.cur), prev: usersOf(fs.prev) },
     levels: levels && levelTable(levels, expected),
+    promotions: promoRows && promoTable(promoRows),
+    campaigns: campaignRows && campaignRows
+      .filter((r) => r["customUser:active_event"] && r["customUser:active_event"] !== "(not set)" && r["customUser:active_event"] !== "none")
+      .map((r) => ({ id: r["customUser:active_event"], users: r.activeUsers, buyers: r.totalPurchasers,
+                     revenue: r.purchaseRevenue, adRevenue: r.totalAdRevenue, minutes: r.activeUsers ? r.userEngagementDuration / 60 / r.activeUsers : null }))
+      .sort((a, b) => b.users - a.users),
   };
+}
+
+const PROMO_EVENTS = ["promo_shown", "promo_tapped", "shop_purchase"];
+
+/** One row per promotion: how often and to how many it was shown, tapped and bought. */
+function promoTable(rows) {
+  const by = {};
+  for (const r of rows) {
+    const id = r["customEvent:promotion"];
+    if (!id || id === "(not set)") continue;
+    const p = (by[id] ||= { id, shown: 0, shownUsers: 0, tapped: 0, tappedUsers: 0, purchases: 0, buyers: 0 });
+    if (r.eventName === "promo_shown") { p.shown = r.eventCount; p.shownUsers = r.totalUsers; }
+    if (r.eventName === "promo_tapped") { p.tapped = r.eventCount; p.tappedUsers = r.totalUsers; }
+    if (r.eventName === "shop_purchase") { p.purchases = r.eventCount; p.buyers = r.totalUsers; }
+  }
+  return Object.values(by).sort((a, b) => b.shownUsers - a.shownUsers);
 }
 
 /** One row per level: who started it, wins and losses, and the expected win rate. */
@@ -408,5 +437,5 @@ async function unity(apiKey, orgId, gameId) {
 
 module.exports = {
   analytics, retention, realtime, playVitals, playReports, admob, unity,
-  parseCsv, cohortRows, levelTable, PERIODS, SourceError,
+  parseCsv, cohortRows, levelTable, promoTable, PERIODS, SourceError,
 };

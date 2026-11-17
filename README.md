@@ -40,12 +40,29 @@ consulta de nuevo al cambiar de periodo.
   esperaba la dificultad adaptativa (`expected_win`) y cuántos pasan al siguiente.
 - **Gráfico accesible**: se recorre con ← y →, y tiene «Ver como tabla».
 
-### Para ver los niveles
+### Para ver los niveles, las promociones y las campañas
 
 En Google Analytics ▸ Administrador ▸ Definiciones personalizadas registra:
 
-- la dimensión de evento `level_id`;
+- las dimensiones de evento `level_id` y `promotion`;
+- la dimensión de usuario `active_event`;
 - la métrica de evento `expected_win` (unidad estándar).
+
+### Quién entra
+
+Entran los correos de `config/statsAccess` y cualquiera con rol en el panel de
+contenido (el *custom claim* `role`). Los ingresos (AdMob, Unity y las cifras de
+dinero de Analytics) los reciben la lista, los publicadores y los dueños; un
+lector o un editor recibe el resto.
+
+### BigQuery
+
+`statsWarehouse` corre cada día a las 7:30 (hora de Bogotá). Con el export de
+Analytics vinculado (Firebase ▸ Configuración del proyecto ▸ Integraciones ▸
+BigQuery), reconstruye en el dataset `blocktrail_stats` las tablas
+`daily_kpis`, `retention_cohorts` y `level_funnel`, sin testers. Mientras no
+haya export, solo deja en el log que está esperando. Las páginas todavía no
+leen esas tablas.
 
 Hasta entonces, la sección Niveles explica qué falta y el resto funciona igual.
 Analytics solo rellena una dimensión desde el día en que se registra.

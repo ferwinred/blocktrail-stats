@@ -3,9 +3,12 @@
 // Firestore so opening the page often does not burn API quota.
 //
 // Who may read: the e-mails listed in Firestore at config/statsAccess, field
-// "emails". Edit that list in the Firebase console; no redeploy needed.
+// "emails" (edit it in the Firebase console; no redeploy needed), and anyone
+// with a role in the content dashboard (the custom claim "role"). Revenue is
+// for the list and for publishers and owners; viewers and editors get the rest.
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret, defineString } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
@@ -25,6 +28,20 @@ const PLAY_BUCKET = defineString("PLAY_BUCKET", { default: "pubsite_prod_6750866
 const ADMOB_APP_ID = defineString("ADMOB_APP_ID", { default: "ca-app-pub-9104124048191994~7609228329" });
 const UNITY_ORG_ID = defineString("UNITY_ORG_ID", { default: "" });
 const UNITY_GAME_ID = defineString("UNITY_GAME_ID", { default: "" });
+
+/** Sources that are only about revenue: skipped for roles without access to it. */
+const MONEY_SOURCES = ["admob", "unity"];
+
+/** Analytics without the revenue figures, for viewers and editors. */
+function withoutMoney(ga) {
+  const strip = (o) => { if (!o) return o; const { purchaseRevenue, totalAdRevenue, ...rest } = o; return rest; };
+  return {
+    ...ga,
+    totals: { cur: strip(ga.totals.cur), prev: strip(ga.totals.prev) },
+    daily: (ga.daily || []).map(strip),
+    campaigns: ga.campaigns && ga.campaigns.map(({ revenue, adRevenue, ...rest }) => rest),
+  };
+}
 
 /** No source may hold the page: past this it fails alone and the rest still arrive. */
 const SOURCE_DEADLINE_MS = 20000;
@@ -79,16 +96,20 @@ exports.stats = onCall(
   async (request) => {
     const token = request.auth && request.auth.token;
     if (!token) throw new HttpsError("unauthenticated", "Inicia sesión para ver las estadísticas.");
-    if (!token.email_verified || !(await allowed(token.email))) {
+    const rank = { viewer: 1, editor: 2, publisher: 3, owner: 4 }[token.role] || 0;
+    const listed = !!token.email_verified && (await allowed(token.email));
+    if (!token.email_verified || (!listed && rank === 0)) {
       throw new HttpsError("permission-denied", "Tu cuenta no tiene acceso. Pide que añadan " + (token.email || "tu correo") + " a la lista.");
     }
+    const money = listed || rank >= 3;
 
     const asked = request.data && request.data.only;
     const only = Array.isArray(asked) ? asked.filter((n) => typeof n === "string") : null;
     const force = !!(request.data && request.data.force);
     const asked_period = Number(request.data && request.data.period);
     const period = sources.PERIODS.includes(asked_period) ? asked_period : 7;
-    const want = (name) => !only || only.includes(name);
+    // Without revenue rights the money sources are not even asked.
+    const want = (name) => (!only || only.includes(name)) && (money || !MONEY_SOURCES.includes(name));
 
     // The Google token is asked once, when the first Google source needs it. If
     // Google refuses it, only those sources fail (each keeps its last good data):
@@ -127,6 +148,21 @@ exports.stats = onCall(
     // Analytics depends on the period, so each period keeps its own cached answer.
     const key = (n) => (n === "analytics" ? n + "_" + period : n);
     const results = await Promise.all(names.map((n) => cached(key(n), TTL[n], force, jobs[n])));
-    return { generated: Date.now(), period, sources: Object.fromEntries(names.map((n, i) => [n, results[i]])) };
+    const out = Object.fromEntries(names.map((n, i) => [n, results[i]]));
+    if (!money && out.analytics && out.analytics.data) out.analytics = { ...out.analytics, data: withoutMoney(out.analytics.data) };
+    return { generated: Date.now(), period, money, sources: out };
+  },
+);
+
+/**
+ * Once a day, after Analytics' daily export: rebuilds the aggregates in
+ * BigQuery (warehouse.js). Waits quietly until the export is linked.
+ */
+exports.statsWarehouse = onSchedule(
+  { schedule: "every day 07:30", timeZone: "America/Bogota", region: "us-central1", timeoutSeconds: 540, memory: "256MiB" },
+  async () => {
+    const { buildAggregates } = require("./warehouse");
+    const out = await buildAggregates(GA4_PROPERTY.value());
+    console.log("statsWarehouse", JSON.stringify(out));
   },
 );
