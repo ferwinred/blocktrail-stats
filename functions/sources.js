@@ -7,12 +7,16 @@ const DATA_API = "https://analyticsdata.googleapis.com/v1beta";
 const PLAY_API = "https://playdeveloperreporting.googleapis.com/v1beta1";
 const ADMOB_API = "https://admob.googleapis.com/v1";
 
+// Keep in step with AnalyticsEvents in the game (Assets/Scripts/Services/IAnalyticsService.cs).
 const GAME_EVENTS = [
   "first_open", "session_start", "level_start", "level_complete", "level_fail", "level_continue",
   "world_unlocked", "world_purchased", "shop_view", "shop_purchase", "in_app_purchase",
-  "ad_requested", "ad_shown", "ad_reward_granted", "ad_impression", "booster_used",
+  "ad_requested", "ad_shown", "ad_reward_granted", "ad_impression", "ad_paid", "ad_slot_missed", "booster_used",
   "daily_reward_claim", "daily_challenge_start", "daily_challenge_complete", "zen_start", "zen_end",
-  "win_streak_reward", "review_prompt", "push_setting", "run_resume", "mission_complete", "app_remove",
+  "win_streak_reward", "review_prompt", "push_setting", "push_prompt", "sign_in_prompt", "run_resume",
+  "mission_complete", "mission_claim", "currency_earned", "currency_spent",
+  "tutorial_step", "first_piece_placed", "first_line_cleared",
+  "promo_shown", "promo_tapped", "event_theme", "event_theme_unlock", "startup_time", "app_remove",
 ];
 
 const TESTER_DIMENSION = "customUser:tester";
@@ -78,6 +82,8 @@ async function analytics(token, property) {
   const totalsMetrics = ["activeUsers", "newUsers", "sessions", "userEngagementDuration", "purchaseRevenue", "totalAdRevenue", "totalPurchasers"]
     .map((name) => ({ name }));
 
+  // Started with the rest: waiting for it afterwards doubled the source's time.
+  const cohorts = retention(report);
   const [daily, last7, prev7, events7, events28, countries, versions] = await Promise.all([
     report({ dateRanges: range(28), dimensions: [{ name: "date" }], metrics: [{ name: "activeUsers" }, { name: "newUsers" }, { name: "sessions" }, { name: "userEngagementDuration" }], orderBys: [{ dimension: { dimensionName: "date" } }] }),
     report({ dateRanges: range(7), metrics: totalsMetrics }),
@@ -97,7 +103,7 @@ async function analytics(token, property) {
       count7: (events7.find((x) => x.eventName === e.eventName) || {}).eventCount || 0,
       users7: (events7.find((x) => x.eventName === e.eventName) || {}).totalUsers || 0,
     }])),
-    retention: await retention(report),
+    retention: await cohorts,
   };
 }
 
@@ -195,12 +201,31 @@ async function playCsv(token, bucket, name) {
   return parseCsv(text);
 }
 
+/** RFC 4180: a quoted field may hold commas ("Korea, Republic of"), quotes ("") and line breaks. */
 function parseCsv(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (!lines.length) return [];
-  const split = (l) => l.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
-  const head = split(lines[0]);
-  return lines.slice(1).map((l) => Object.fromEntries(split(l).map((v, i) => [head[i], v])));
+  const rows = [];
+  let row = [], field = "", quoted = false;
+  const src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (quoted) {
+      if (c === '"' && src[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ",") { row.push(field.trim()); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && src[i + 1] === "\n") i++;
+      row.push(field.trim()); field = "";
+      if (row.some((v) => v !== "")) rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  row.push(field.trim());
+  if (row.some((v) => v !== "")) rows.push(row);
+  if (!rows.length) return [];
+  const head = rows[0];
+  return rows.slice(1).map((r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ""])));
 }
 
 async function playReports(token, bucket) {
@@ -237,7 +262,8 @@ async function admob(token, appId) {
   const date = (d) => ({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() });
   const items = await call(token, `${ADMOB_API}/${accounts[0].name}/networkReport:generate`, {
     reportSpec: {
-      dateRange: { startDate: date(start), endDate: date(new Date()) },
+      // Up to yesterday: today's half day would pull the 7-day sums and eCPM down.
+      dateRange: { startDate: date(start), endDate: date(end) },
       dimensions: ["DATE", "FORMAT"],
       metrics: ["AD_REQUESTS", "MATCHED_REQUESTS", "IMPRESSIONS", "CLICKS", "ESTIMATED_EARNINGS"],
       dimensionFilters: [{ dimension: "APP", matchesAny: { values: [appId] } }],
@@ -262,7 +288,9 @@ async function admob(token, appId) {
 // ------------------------------------------------------------ Unity Ads
 
 async function unity(apiKey, orgId, gameId) {
+  // Up to the start of today (UTC): the day in progress is left out, as with AdMob.
   const end = new Date();
+  end.setUTCHours(0, 0, 0, 0);
   const start = new Date(end.getTime() - 30 * 86400000);
   const params = new URLSearchParams({
     fields: "adrequest_count,available_sum,revenue_sum,start_count,view_count",
@@ -270,14 +298,10 @@ async function unity(apiKey, orgId, gameId) {
   });
   if (gameId) params.set("gameIds", gameId);
   const url = `https://monetization.api.unity.com/stats/v1/operate/organizations/${orgId}`;
-  // Unity takes the key as a header or as ?apikey=; the header first, the query as a second try.
-  let res = await fetch(`${url}?${params}`, {
+  // The key goes only in the header: in a query string it could end up in proxy logs.
+  const res = await fetch(`${url}?${params}`, {
     headers: { Accept: "text/csv", Authorization: "Token " + apiKey }, signal: AbortSignal.timeout(18000),
   });
-  if (res.status === 401) {
-    params.set("apikey", apiKey);
-    res = await fetch(`${url}?${params}`, { headers: { Accept: "text/csv" }, signal: AbortSignal.timeout(18000) });
-  }
   if (!res.ok) {
     const hint = { 401: " (Unity no acepta la clave: revisa que sea la de «Monetization Stats API Access» y que tu usuario tenga rol de propietario o gestor)",
                    404: " (Unity no encuentra la organización: revisa UNITY_ORG_ID, el «Organization core ID» de Monetización ▸ Configuración)" }[res.status] || "";

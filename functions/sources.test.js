@@ -16,3 +16,11 @@ test("reads a quoted Unity CSV", () => {
 test("an empty report has no rows", () => {
   assert.deepStrictEqual(parseCsv(""), []);
 });
+
+test("parseCsv keeps a quoted comma inside its field", () => {
+  const rows = parseCsv('Date,Country,Installs\r\n2026-11-10,"Korea, Republic of",3\r\n2026-11-11,"Say ""hi""",4\r\n');
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].Country, "Korea, Republic of");
+  assert.equal(rows[0].Installs, "3");
+  assert.equal(rows[1].Country, 'Say "hi"');
+});
