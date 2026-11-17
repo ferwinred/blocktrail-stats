@@ -24,6 +24,9 @@ const TESTER_FILTER = { notExpression: { filter: { fieldName: TESTER_DIMENSION, 
 
 class SourceError extends Error {}
 
+/** How far back the daily sources reach: two of the longest period, so it can be compared. */
+const HISTORY_DAYS = 180;
+
 /** fetch with JSON, retrying Google's own 5xx hiccups twice. */
 async function call(token, url, body, { raw = false, timeoutMs = 18000 } = {}) {
   for (let attempt = 0; ; attempt++) {
@@ -58,17 +61,49 @@ function rowsOf(data) {
   });
 }
 
-const range = (days) => [{ startDate: days + "daysAgo", endDate: "yesterday" }];
+/** The periods the page offers, in days. */
+const PERIODS = [7, 28, 90];
 
-async function analytics(token, property) {
+/** The period that ends yesterday, and the one just before it, as GA4 date ranges. */
+function windows(period) {
+  return {
+    cur: { startDate: period + "daysAgo", endDate: "yesterday", name: "cur" },
+    prev: { startDate: 2 * period + "daysAgo", endDate: period + 1 + "daysAgo", name: "prev" },
+  };
+}
+
+/** The first session, step by step: who got how far. */
+const FIRST_SESSION = ["first_open", "tutorial_step", "first_piece_placed", "first_line_cleared", "level_complete"];
+const LEVEL_EVENTS = ["level_start", "level_complete", "level_fail"];
+
+/** Runs a report that needs a custom dimension or metric; null when Analytics does not know it yet. */
+async function optional(report, body) {
+  try {
+    return await report(body);
+  } catch (err) {
+    if (err instanceof SourceError && err.message.startsWith("400")) return null;
+    throw err;
+  }
+}
+
+/** Splits the rows of a two-range report into { cur, prev }. */
+function byRange(rows) {
+  const out = { cur: [], prev: [] };
+  for (const r of rows) (out[r.dateRange] || (out[r.dateRange] = [])).push(r);
+  return out;
+}
+
+async function analytics(token, property, period = 7) {
+  if (!PERIODS.includes(period)) period = 7;
   const prop = "properties/" + property;
+  const { cur, prev } = windows(period);
   // Whether testers can be left out: a 400 means the dimension is not registered yet.
   // Asked with a short timeout, so a slow Analytics does not spend the source's whole budget here.
   let excludeTesters = false;
   let testers = null;
   try {
     testers = rowsOf(await call(token, `${DATA_API}/${prop}:runReport`, {
-      dateRanges: range(28), dimensions: [{ name: TESTER_DIMENSION }], metrics: [{ name: "activeUsers" }],
+      dateRanges: [cur], dimensions: [{ name: TESTER_DIMENSION }], metrics: [{ name: "activeUsers" }],
     }, { timeoutMs: 6000 }));
     excludeTesters = true;
   } catch { /* not registered, or Analytics is slow: report everyone */ }
@@ -81,65 +116,118 @@ async function analytics(token, property) {
   };
   const totalsMetrics = ["activeUsers", "newUsers", "sessions", "userEngagementDuration", "purchaseRevenue", "totalAdRevenue", "totalPurchasers"]
     .map((name) => ({ name }));
+  const eventFilter = (values) => ({ filter: { fieldName: "eventName", inListFilter: { values } } });
 
-  // Started with the rest: waiting for it afterwards doubled the source's time.
-  const cohorts = retention(report);
-  const [daily, last7, prev7, events7, events28, countries, versions] = await Promise.all([
-    report({ dateRanges: range(28), dimensions: [{ name: "date" }], metrics: [{ name: "activeUsers" }, { name: "newUsers" }, { name: "sessions" }, { name: "userEngagementDuration" }], orderBys: [{ dimension: { dimensionName: "date" } }] }),
-    report({ dateRanges: range(7), metrics: totalsMetrics }),
-    report({ dateRanges: [{ startDate: "14daysAgo", endDate: "8daysAgo" }], metrics: totalsMetrics }),
-    report({ dateRanges: range(7), dimensions: [{ name: "eventName" }], metrics: [{ name: "eventCount" }, { name: "totalUsers" }], dimensionFilter: { filter: { fieldName: "eventName", inListFilter: { values: GAME_EVENTS } } } }),
-    report({ dateRanges: range(28), dimensions: [{ name: "eventName" }], metrics: [{ name: "eventCount" }, { name: "totalUsers" }], dimensionFilter: { filter: { fieldName: "eventName", inListFilter: { values: GAME_EVENTS } } } }),
-    report({ dateRanges: range(28), dimensions: [{ name: "country" }], metrics: [{ name: "activeUsers" }, { name: "newUsers" }, { name: "userEngagementDuration" }], orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }], limit: 12 }),
-    report({ dateRanges: range(7), dimensions: [{ name: "appVersion" }], metrics: [{ name: "activeUsers" }], orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }] }),
+  const [daily, totals, events, countries, versions, firstSession, levels, expected] = await Promise.all([
+    // Both periods by day: the sparklines and the per-day sums (DAU-days) come from here.
+    report({ dateRanges: [{ startDate: 2 * period + "daysAgo", endDate: "yesterday" }], dimensions: [{ name: "date" }],
+             metrics: ["activeUsers", "newUsers", "sessions", "userEngagementDuration", "purchaseRevenue", "totalPurchasers"].map((name) => ({ name })),
+             orderBys: [{ dimension: { dimensionName: "date" } }], limit: 400 }),
+    report({ dateRanges: [cur, prev], metrics: totalsMetrics }),
+    report({ dateRanges: [cur, prev], dimensions: [{ name: "eventName" }], metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
+             dimensionFilter: eventFilter(GAME_EVENTS) }),
+    report({ dateRanges: [cur], dimensions: [{ name: "country" }], metrics: [{ name: "activeUsers" }, { name: "newUsers" }, { name: "userEngagementDuration" }],
+             orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }], limit: 12 }),
+    report({ dateRanges: [cur], dimensions: [{ name: "appVersion" }], metrics: [{ name: "activeUsers" }],
+             orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }] }),
+    // Players new in the period: how many reached each first-session step.
+    report({ dateRanges: [cur, prev], dimensions: [{ name: "eventName" }], metrics: [{ name: "totalUsers" }],
+             dimensionFilter: { andGroup: { expressions: [eventFilter(FIRST_SESSION),
+               { filter: { fieldName: "newVsReturning", stringFilter: { value: "new" } } }] } } }),
+    // Per level: needs level_id registered as an event-scoped custom dimension.
+    optional(report, { dateRanges: [cur], dimensions: [{ name: "customEvent:level_id" }, { name: "eventName" }],
+                       metrics: [{ name: "eventCount" }, { name: "totalUsers" }], dimensionFilter: eventFilter(LEVEL_EVENTS), limit: 2000 }),
+    // What the difficulty model expected: needs expected_win registered as a custom metric.
+    optional(report, { dateRanges: [cur], dimensions: [{ name: "customEvent:level_id" }],
+                       metrics: [{ name: "averageCustomEvent:expected_win" }], dimensionFilter: eventFilter(["level_complete", "level_fail"]), limit: 2000 }),
   ]);
 
+  const t = byRange(totals);
+  const ev = byRange(events);
+  const fs = byRange(firstSession);
+  const usersOf = (rows) => Object.fromEntries(rows.map((r) => [r.eventName, r.totalUsers]));
   return {
-    property, excludeTesters, testers,
-    totals: { last7: last7[0] || {}, prev7: prev7[0] || {} },
+    property, period, excludeTesters, testers,
+    totals: { cur: t.cur[0] || {}, prev: t.prev[0] || {} },
     daily, countries, versions,
-    events: Object.fromEntries(events28.map((e) => [e.eventName, {
-      count28: e.eventCount, users28: e.totalUsers,
-      count7: (events7.find((x) => x.eventName === e.eventName) || {}).eventCount || 0,
-      users7: (events7.find((x) => x.eventName === e.eventName) || {}).totalUsers || 0,
-    }])),
-    retention: await cohorts,
+    events: Object.fromEntries([...new Set(events.map((e) => e.eventName))].map((name) => {
+      const c = ev.cur.find((x) => x.eventName === name) || {}, p = ev.prev.find((x) => x.eventName === name) || {};
+      return [name, { count: c.eventCount || 0, users: c.totalUsers || 0, prevCount: p.eventCount || 0, prevUsers: p.totalUsers || 0 }];
+    })),
+    firstSession: { steps: FIRST_SESSION, cur: usersOf(fs.cur), prev: usersOf(fs.prev) },
+    levels: levels && levelTable(levels, expected),
   };
 }
 
-/** Daily install cohorts and the share still active on day 1 and day 7. */
-async function retention(report) {
+/** One row per level: who started it, wins and losses, and the expected win rate. */
+function levelTable(rows, expected) {
+  const by = {};
+  for (const r of rows) {
+    const id = r["customEvent:level_id"];
+    if (!id || id === "(not set)") continue;
+    const l = (by[id] ||= { id, startedUsers: 0, starts: 0, wins: 0, losses: 0, winUsers: 0, expectedWin: null });
+    if (r.eventName === "level_start") { l.starts = r.eventCount; l.startedUsers = r.totalUsers; }
+    if (r.eventName === "level_complete") { l.wins = r.eventCount; l.winUsers = r.totalUsers; }
+    if (r.eventName === "level_fail") l.losses = r.eventCount;
+  }
+  for (const e of expected || []) {
+    const l = by[e["customEvent:level_id"]];
+    const v = Number(e["averageCustomEvent:expected_win"]);
+    if (l && Number.isFinite(v)) l.expectedWin = v;
+  }
+  return Object.values(by).sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }));
+}
+
+/**
+ * Daily install cohorts of the last eight weeks, and how many were still active
+ * on days 1, 3, 7, 14 and 30. The page groups them by week and by period.
+ */
+const RETENTION_DAYS = [1, 3, 7, 14, 30];
+
+async function retention(token, property) {
+  const prop = "properties/" + property;
   const today = new Date();
   const days = [];
-  for (let i = 2; i < 40; i++) days.push(new Date(today.getTime() - i * 86400000).toISOString().slice(0, 10));
+  for (let i = 2; i < 58; i++) days.push(new Date(today.getTime() - i * 86400000).toISOString().slice(0, 10));
   const chunks = [];
-  for (let i = 0; i < days.length; i += 10) chunks.push(days.slice(i, i + 10));
-  const rows = (await Promise.all(chunks.map((chunk) => report({
+  for (let i = 0; i < days.length; i += 8) chunks.push(days.slice(i, i + 8));
+  const ask = (chunk, filter) => call(token, `${DATA_API}/${prop}:runReport`, {
     dimensions: [{ name: "cohort" }, { name: "cohortNthDay" }],
     metrics: [{ name: "cohortActiveUsers" }, { name: "cohortTotalUsers" }],
+    ...(filter ? { dimensionFilter: filter } : {}),
     cohortSpec: {
       cohorts: chunk.map((d) => ({ name: d.replaceAll("-", ""), dimension: "firstSessionDate", dateRange: { startDate: d, endDate: d } })),
-      cohortsRange: { granularity: "DAILY", startOffset: 0, endOffset: 7 },
+      cohortsRange: { granularity: "DAILY", startOffset: 0, endOffset: 30 },
     },
-  })))).flat();
+  }).then(rowsOf);
+  // Testers left out when Analytics knows the mark; otherwise everyone.
+  let rows;
+  try {
+    rows = (await Promise.all(chunks.map((c) => ask(c, TESTER_FILTER)))).flat();
+  } catch (err) {
+    if (!(err instanceof SourceError && err.message.startsWith("400"))) throw err;
+    rows = (await Promise.all(chunks.map((c) => ask(c)))).flat();
+  }
+  return { days: RETENTION_DAYS, cohorts: cohortRows(rows, today) };
+}
 
+/** Folds GA4's cohort rows into { date, age, size, active: { n: users } }, newest first. */
+function cohortRows(rows, today) {
   const by = {};
   for (const r of rows) {
     const c = (by[r.cohort] ||= { size: 0, active: {} });
-    c.size = Math.max(c.size, r.cohortTotalUsers);
-    c.active[Number(r.cohortNthDay)] = r.cohortActiveUsers;
+    c.size = Math.max(c.size, Number(r.cohortTotalUsers) || 0);
+    const n = Number(r.cohortNthDay);
+    if (RETENTION_DAYS.includes(n)) c.active[n] = Number(r.cohortActiveUsers) || 0;
   }
-  const rate = (n) => {
-    let size = 0, active = 0;
-    for (const [name, c] of Object.entries(by)) {
-      const age = (today - new Date(`${name.slice(0, 4)}-${name.slice(4, 6)}-${name.slice(6)}`)) / 86400000;
-      if (age <= n || !c.size) continue;
-      size += c.size;
-      active += c.active[n] || 0;
-    }
-    return { rate: size ? active / size : null, users: size };
-  };
-  return { d1: rate(1), d7: rate(7) };
+  return Object.entries(by).map(([name, c]) => {
+    const date = `${name.slice(0, 4)}-${name.slice(4, 6)}-${name.slice(6)}`;
+    // Days fully past since that install day: day N is known once age > N.
+    const age = Math.floor((Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()) - Date.parse(date)) / 86400000);
+    const active = {};
+    for (const n of RETENTION_DAYS) if (age > n) active[n] = c.active[n] || 0;
+    return { date, age, size: c.size, active };
+  }).sort((a, b) => b.date.localeCompare(a.date));
 }
 
 async function realtime(token, property) {
@@ -168,10 +256,10 @@ async function vital(token, metricSet, metrics) {
   const latest = ((info.freshnessInfo || {}).freshnesses || []).find((f) => f.aggregationPeriod === "DAILY");
   if (!latest) return [];
   const end = latest.latestEndTime;
-  const start = new Date(Date.UTC(end.year, end.month - 1, end.day) - 28 * 86400000);
+  const start = new Date(Date.UTC(end.year, end.month - 1, end.day) - HISTORY_DAYS * 86400000);
   const body = {
     timelineSpec: { aggregationPeriod: "DAILY", startTime: playDate({ year: start.getUTCFullYear(), month: start.getUTCMonth() + 1, day: start.getUTCDate() }), endTime: playDate(end) },
-    metrics, pageSize: 100,
+    metrics, pageSize: 1000,
   };
   const rows = (await call(token, base + ":query", body)).rows || [];
   return rows.map((r) => {
@@ -230,19 +318,22 @@ function parseCsv(text) {
 
 async function playReports(token, bucket) {
   const now = new Date();
-  const months = [new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)), new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))]
+  // Seven monthly files cover two 90-day periods.
+  const months = [6, 5, 4, 3, 2, 1, 0].map((back) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1)))
     .map((d) => `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
   const num = (v) => (v === undefined || v === "" ? null : Number(v));
+  const files = await Promise.all(months.map((m) => Promise.all([
+    playCsv(token, bucket, `stats/installs/installs_${PACKAGE}_${m}_overview.csv`),
+    playCsv(token, bucket, `stats/crashes/crashes_${PACKAGE}_${m}_overview.csv`),
+  ])));
   const installs = [], crashes = [];
-  for (const m of months) {
-    const inst = await playCsv(token, bucket, `stats/installs/installs_${PACKAGE}_${m}_overview.csv`);
+  for (const [inst, cr] of files) {
     for (const r of inst || []) {
       if (!r.Date) continue;
       installs.push({ date: r.Date, userInstalls: num(r["Daily User Installs"]), deviceInstalls: num(r["Daily Device Installs"]),
                       userUninstalls: num(r["Daily User Uninstalls"]), activeDevices: num(r["Active Device Installs"]),
                       totalUsers: num(r["Total User Installs"]) });
     }
-    const cr = await playCsv(token, bucket, `stats/crashes/crashes_${PACKAGE}_${m}_overview.csv`);
     for (const r of cr || []) {
       if (!r.Date) continue;
       crashes.push({ date: r.Date, crashes: num(r["Daily Crashes"]) || 0, anrs: num(r["Daily ANRs"]) || 0 });
@@ -258,7 +349,7 @@ async function admob(token, appId) {
   const accounts = (await call(token, `${ADMOB_API}/accounts`)).account || [];
   if (!accounts.length) throw new SourceError("La cuenta de Google no tiene acceso a AdMob.");
   const end = new Date(Date.now() - 86400000);
-  const start = new Date(end.getTime() - 29 * 86400000);
+  const start = new Date(end.getTime() - (HISTORY_DAYS - 1) * 86400000);
   const date = (d) => ({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() });
   const items = await call(token, `${ADMOB_API}/${accounts[0].name}/networkReport:generate`, {
     reportSpec: {
@@ -291,7 +382,7 @@ async function unity(apiKey, orgId, gameId) {
   // Up to the start of today (UTC): the day in progress is left out, as with AdMob.
   const end = new Date();
   end.setUTCHours(0, 0, 0, 0);
-  const start = new Date(end.getTime() - 30 * 86400000);
+  const start = new Date(end.getTime() - HISTORY_DAYS * 86400000);
   const params = new URLSearchParams({
     fields: "adrequest_count,available_sum,revenue_sum,start_count,view_count",
     scale: "day", start: start.toISOString(), end: end.toISOString(),
@@ -315,4 +406,7 @@ async function unity(apiKey, orgId, gameId) {
   return { rows };
 }
 
-module.exports = { analytics, realtime, playVitals, playReports, admob, unity, parseCsv, SourceError };
+module.exports = {
+  analytics, retention, realtime, playVitals, playReports, admob, unity,
+  parseCsv, cohortRows, levelTable, PERIODS, SourceError,
+};

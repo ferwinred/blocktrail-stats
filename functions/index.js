@@ -38,7 +38,7 @@ function withDeadline(promise, ms) {
 }
 
 /** How long each answer is reused, in minutes. Play is days behind anyway. */
-const TTL = { realtime: 1, analytics: 10, admob: 30, unity: 30, playVitals: 360, playReports: 360 };
+const TTL = { realtime: 1, analytics: 10, retention: 60, admob: 30, unity: 30, playVitals: 360, playReports: 360 };
 
 async function allowed(email) {
   if (!email) return false;
@@ -86,6 +86,8 @@ exports.stats = onCall(
     const asked = request.data && request.data.only;
     const only = Array.isArray(asked) ? asked.filter((n) => typeof n === "string") : null;
     const force = !!(request.data && request.data.force);
+    const asked_period = Number(request.data && request.data.period);
+    const period = sources.PERIODS.includes(asked_period) ? asked_period : 7;
     const want = (name) => !only || only.includes(name);
 
     // The Google token is asked once, when the first Google source needs it. If
@@ -110,7 +112,8 @@ exports.stats = onCall(
 
     const jobs = {
       realtime: async () => sources.realtime(await google(), GA4_PROPERTY.value()),
-      analytics: async () => sources.analytics(await google(), GA4_PROPERTY.value()),
+      analytics: async () => sources.analytics(await google(), GA4_PROPERTY.value(), period),
+      retention: async () => sources.retention(await google(), GA4_PROPERTY.value()),
       playVitals: async () => sources.playVitals(await google()),
       playReports: async () => sources.playReports(await google(), PLAY_BUCKET.value()),
       admob: async () => sources.admob(await google(), ADMOB_APP_ID.value()),
@@ -121,7 +124,9 @@ exports.stats = onCall(
     };
 
     const names = Object.keys(jobs).filter(want);
-    const results = await Promise.all(names.map((n) => cached(n, TTL[n], force, jobs[n])));
-    return { generated: Date.now(), sources: Object.fromEntries(names.map((n, i) => [n, results[i]])) };
+    // Analytics depends on the period, so each period keeps its own cached answer.
+    const key = (n) => (n === "analytics" ? n + "_" + period : n);
+    const results = await Promise.all(names.map((n) => cached(key(n), TTL[n], force, jobs[n])));
+    return { generated: Date.now(), period, sources: Object.fromEntries(names.map((n, i) => [n, results[i]])) };
   },
 );

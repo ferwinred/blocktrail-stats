@@ -15,11 +15,40 @@ Google Play.
 | Fuente | Qué trae | Frescura |
 |---|---|---|
 | Google Analytics (tiempo real) | Jugando ahora, instalaciones, niveles y anuncios de los últimos 30 min | 1 min |
-| Google Analytics | Activos, nuevos, minutos, retención D1/D7, eventos, países, versiones | 10 min |
+| Google Analytics | Activos, nuevos, minutos, eventos, países, versiones, primera sesión y niveles, del periodo elegido y del anterior | 10 min |
+| Google Analytics (cohortes) | Instalaciones por día de las últimas 8 semanas y cuántas siguen en D1, D3, D7, D14 y D30 | 1 h |
 | AdMob | Impresiones, clics, ingresos por día y formato | 30 min |
 | Unity Ads | Anuncios pedidos, vistos e ingresos por día | 30 min |
 | Google Play (informes) | Instalaciones, desinstalaciones, fallos y ANR por día | 6 h (Play va 1–3 días atrás) |
 | Google Play (vitals) | Tasa de fallos y ANR percibida | 6 h |
+
+AdMob, Unity Ads y Play traen 180 días: la página elige el periodo (7, 28 o 90
+días) y lo compara con el anterior sin volver a pedirlos. Solo Analytics se
+consulta de nuevo al cambiar de periodo.
+
+### Qué muestra
+
+- **Resumen**: ingresos (AdMob + Unity + compras brutas), ARPDAU, anuncios por
+  jugador al día, fill rate de AdMob, D1 y fallos percibidos, cada uno con su
+  línea diaria y el cambio frente al periodo anterior. Si la muestra es pequeña
+  (menos de 200 jugadores-día, 100 instalaciones, 1.000 solicitudes o 500
+  usuarios en vitals), el cambio se muestra sin color.
+- **Retención por semana de instalación**: tabla de cohortes D1 a D30.
+- **Primera sesión**: abren el juego → tutorial → primera pieza → primera línea
+  → ganan un nivel, de los jugadores nuevos del periodo.
+- **Niveles**: quién empezó cada nivel, tasa de victoria frente a la que
+  esperaba la dificultad adaptativa (`expected_win`) y cuántos pasan al siguiente.
+- **Gráfico accesible**: se recorre con ← y →, y tiene «Ver como tabla».
+
+### Para ver los niveles
+
+En Google Analytics ▸ Administrador ▸ Definiciones personalizadas registra:
+
+- la dimensión de evento `level_id`;
+- la métrica de evento `expected_win` (unidad estándar).
+
+Hasta entonces, la sección Niveles explica qué falta y el resto funciona igual.
+Analytics solo rellena una dimensión desde el día en que se registra.
 
 ## Puesta en marcha
 
@@ -82,3 +111,9 @@ GitHub Pages sirve `docs/` de la rama `main` en
 ```
 cd functions && npm install && npm test
 ```
+```
+node --test tests/*.test.mjs
+```
+Los cálculos de la página (periodos, resumen, cohortes y embudos) están en
+`docs/metrics.js`, sin DOM, y se prueban con `tests/metrics.test.mjs`. GitHub
+Actions corre ambas pruebas en cada push (`.github/workflows/test.yml`).

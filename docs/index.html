@@ -4,16 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>BlockTrail Estadísticas</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800&family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=202611131419">
+  <link rel="stylesheet" href="style.css?v=202611171600">
   <script>
     // Before the page paints, so a saved choice never flashes the other theme first.
     try { const t = localStorage.getItem("bt-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
   </script>
 </head>
 <body>
+  <a class="skip" href="#app">Saltar al contenido</a>
   <header class="top">
     <div class="brand">
       <span class="logo" aria-hidden="true"></span>
@@ -23,7 +25,12 @@
       </div>
     </div>
     <div class="top-right">
-      <div class="theme" role="group" aria-label="Tema">
+      <div class="seg" id="period" role="group" aria-label="Periodo" hidden>
+        <button type="button" data-period="7">7 días</button>
+        <button type="button" data-period="28">28 días</button>
+        <button type="button" data-period="90">90 días</button>
+      </div>
+      <div class="seg" role="group" aria-label="Tema">
         <button type="button" data-theme-choice="auto">Automático</button>
         <button type="button" data-theme-choice="light">Claro</button>
         <button type="button" data-theme-choice="dark">Oscuro</button>
@@ -41,11 +48,15 @@
       <h2>Inicia sesión</h2>
       <p class="muted">Solo las cuentas autorizadas pueden ver las estadísticas.</p>
       <button id="signin" class="btn primary">Entrar con Google</button>
-      <p id="login-error" class="error" hidden></p>
+      <p id="login-error" class="error" role="alert" hidden></p>
     </section>
 
-    <section id="app" hidden>
-      <p id="status" class="muted small"></p>
+    <section id="app" hidden tabindex="-1">
+      <p id="status" class="muted small" role="status" aria-live="polite"></p>
+
+      <h2 class="section">Resumen <span class="pill"><span class="per"></span> frente a los <span class="per"></span> anteriores</span></h2>
+      <div class="strip" id="strip" aria-busy="true"></div>
+      <p class="muted small">Sin color: la muestra todavía es pequeña para decir si el cambio es real. Pasa el cursor por una cifra para ver el detalle.</p>
 
       <h2 class="section">Ahora mismo <span class="pill live">en vivo · últimos 30 min</span></h2>
       <div class="grid">
@@ -55,59 +66,83 @@
         <div class="card kpi"><span class="label">Anuncios vistos</span><span class="value" id="rt-ads">—</span></div>
       </div>
       <p class="muted small" id="rt-countries"></p>
-      <p class="error" id="err-realtime" hidden></p>
+      <div class="error" id="err-realtime" hidden></div>
 
-      <h2 class="section">Jugadores <span class="pill">Google Analytics · 7 días</span></h2>
+      <h2 class="section">Jugadores <span class="pill">Google Analytics · <span class="per"></span></span></h2>
       <p class="muted small" id="testers-note"></p>
       <div class="grid">
         <div class="card kpi"><span class="label">Jugadores activos</span><span class="value" id="ga-active">—</span><span class="delta" id="ga-active-d"></span></div>
         <div class="card kpi"><span class="label">Instalaciones nuevas</span><span class="value" id="ga-new">—</span><span class="delta" id="ga-new-d"></span></div>
         <div class="card kpi"><span class="label">Minutos por jugador</span><span class="value" id="ga-min">—</span><span class="delta" id="ga-min-d"></span></div>
         <div class="card kpi"><span class="label">Niveles ganados</span><span class="value" id="ga-win">—</span><span class="delta muted">de los terminados</span></div>
-        <div class="card kpi"><span class="label">Vuelven al día siguiente</span><span class="value" id="ga-d1">—</span><span class="delta muted" id="ga-d1-n"></span></div>
-        <div class="card kpi"><span class="label">Siguen a la semana</span><span class="value" id="ga-d7">—</span><span class="delta muted" id="ga-d7-n"></span></div>
+        <div class="card kpi"><span class="label">Siguen a la semana (D7)</span><span class="value" id="ga-d7">—</span><span class="delta muted" id="ga-d7-n"></span></div>
+        <div class="card kpi"><span class="label">Compradores</span><span class="value" id="ga-buyers">—</span><span class="delta" id="ga-buyers-d"></span></div>
       </div>
-      <p class="error" id="err-analytics" hidden></p>
+      <div class="error" id="err-analytics" hidden></div>
 
       <div class="card chart-card">
         <div class="chart-head">
           <h3>Jugadores por día</h3>
-          <div class="legend"><span><i class="sw s0"></i>Activos</span><span><i class="sw s1"></i>Nuevos (Analytics)</span><span><i class="sw s2"></i>Instalaciones (Play)</span></div>
+          <div class="legend" id="chart-legend"></div>
+          <button type="button" class="btn small-btn" id="chart-table-toggle" aria-expanded="false" aria-controls="chart-table">Ver como tabla</button>
         </div>
         <div id="chart" class="chart"></div>
+        <p class="muted small">Con el teclado: enfoca el gráfico y usa ← y → para recorrer los días.</p>
+        <div class="table-wrap" id="chart-table" hidden></div>
       </div>
 
-      <h2 class="section">Ingresos <span class="pill">7 días</span></h2>
+      <h2 class="section">Retención por semana de instalación <span class="pill">últimas 8 semanas</span></h2>
+      <div class="card">
+        <div class="table-wrap"><table id="t-cohorts" class="cohorts"><caption class="sr">Porcentaje de jugadores que siguen activos N días después de instalar, por semana de instalación</caption>
+          <thead><tr><th scope="col">Semana</th><th scope="col">Instalaciones</th><th scope="col">D1</th><th scope="col">D3</th><th scope="col">D7</th><th scope="col">D14</th><th scope="col">D30</th></tr></thead><tbody></tbody></table></div>
+        <p class="muted small">Una cifra con * cuenta solo los días de esa semana que ya llegaron a ese día. Las semanas con menos de 100 instalaciones salen atenuadas.</p>
+        <div class="error" id="err-retention" hidden></div>
+      </div>
+
+      <div class="two">
+        <div class="card">
+          <h3>Primera sesión <span class="muted small">jugadores nuevos · <span class="per"></span></span></h3>
+          <ol class="funnel" id="funnel-first"></ol>
+        </div>
+      </div>
+      <div class="card spaced">
+          <h3>Niveles <span class="muted small"><span class="per"></span></span></h3>
+          <p class="muted small" id="levels-note"></p>
+          <div class="table-wrap levels"><table id="t-levels"><caption class="sr">Por nivel: jugadores que lo empezaron, tasa de victoria frente a la esperada y cuántos pasan al siguiente</caption>
+            <thead><tr><th scope="col">Nivel</th><th scope="col">Lo empezaron</th><th scope="col">Ganadas</th><th scope="col">Esperado</th><th scope="col">Diferencia</th><th scope="col">Pasan al siguiente</th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <h2 class="section">Ingresos <span class="pill"><span class="per"></span></span></h2>
       <div class="grid">
         <div class="card kpi"><span class="label">AdMob</span><span class="value" id="ad-earn">—</span><span class="delta muted" id="ad-imps"></span></div>
         <div class="card kpi"><span class="label">eCPM AdMob</span><span class="value" id="ad-ecpm">—</span><span class="delta muted" id="ad-ctr"></span></div>
         <div class="card kpi"><span class="label">Unity Ads</span><span class="value" id="un-rev">—</span><span class="delta muted" id="un-views"></span></div>
-        <div class="card kpi"><span class="label">Compras</span><span class="value" id="ga-buy">—</span><span class="delta muted" id="ga-buyers"></span></div>
+        <div class="card kpi"><span class="label">Compras</span><span class="value" id="rev-buy">—</span><span class="delta muted">brutas, Google Analytics</span></div>
       </div>
-      <p class="error" id="err-admob" hidden></p>
-      <p class="error" id="err-unity" hidden></p>
+      <div class="error" id="err-admob" hidden></div>
+      <div class="error" id="err-unity" hidden></div>
 
       <h2 class="section">Google Play <span class="pill">cifras oficiales · 1–3 días de retraso</span></h2>
       <div class="grid">
         <div class="card kpi"><span class="label">Descargas totales</span><span class="value" id="pl-total">—</span><span class="delta muted" id="pl-total-n"></span></div>
         <div class="card kpi"><span class="label">Instalado ahora en</span><span class="value" id="pl-active">—</span><span class="delta muted">dispositivos</span></div>
         <div class="card kpi"><span class="label">Instalaciones</span><span class="value" id="pl-inst">—</span><span class="delta muted" id="pl-inst-n"></span></div>
-        <div class="card kpi"><span class="label">Desinstalaciones</span><span class="value" id="pl-uninst">—</span><span class="delta muted">7 días</span></div>
-        <div class="card kpi"><span class="label">Fallos y ANR</span><span class="value" id="pl-crash">—</span><span class="delta muted">7 días</span></div>
+        <div class="card kpi"><span class="label">Desinstalaciones</span><span class="value" id="pl-uninst">—</span><span class="delta muted"><span class="per"></span></span></div>
+        <div class="card kpi"><span class="label">Fallos y ANR</span><span class="value" id="pl-crash">—</span><span class="delta muted"><span class="per"></span></span></div>
         <div class="card kpi"><span class="label">Tasa de fallos</span><span class="value" id="pl-rate">—</span><span class="delta muted" id="pl-rate-n"></span></div>
       </div>
-      <p class="error" id="err-playReports" hidden></p>
-      <p class="error" id="err-playVitals" hidden></p>
+      <div class="error" id="err-playReports" hidden></div>
+      <div class="error" id="err-playVitals" hidden></div>
 
       <div class="two">
-        <div class="card"><h3>Países <span class="muted small">28 días</span></h3><div class="table-wrap"><table id="t-countries"><thead><tr><th>País</th><th>Activos</th><th>Nuevos</th><th>Min. por jugador</th></tr></thead><tbody></tbody></table></div></div>
-        <div class="card"><h3>Versiones <span class="muted small">7 días</span></h3><div class="table-wrap"><table id="t-versions"><thead><tr><th>Versión</th><th>Activos</th></tr></thead><tbody></tbody></table></div></div>
+        <div class="card"><h3>Países <span class="muted small"><span class="per"></span></span></h3><div class="table-wrap"><table id="t-countries"><thead><tr><th scope="col">País</th><th scope="col">Activos</th><th scope="col">Nuevos</th><th scope="col">Min. por jugador</th></tr></thead><tbody></tbody></table></div></div>
+        <div class="card"><h3>Versiones <span class="muted small"><span class="per"></span></span></h3><div class="table-wrap"><table id="t-versions"><thead><tr><th scope="col">Versión</th><th scope="col">Activos</th></tr></thead><tbody></tbody></table></div></div>
       </div>
-      <div class="card"><h3>Qué hacen los jugadores</h3><div class="table-wrap"><table id="t-events"><thead><tr><th>Evento</th><th>Veces · 7 días</th><th>Jugadores · 7 días</th><th>Veces · 28 días</th></tr></thead><tbody></tbody></table></div></div>
-      <div class="card"><h3>AdMob por formato <span class="muted small">7 días</span></h3><div class="table-wrap"><table id="t-formats"><thead><tr><th>Formato</th><th>Impresiones</th><th>Clics</th><th>Ingresos</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="card"><h3>Qué hacen los jugadores <span class="muted small"><span class="per"></span></span></h3><div class="table-wrap"><table id="t-events"><thead><tr><th scope="col">Evento</th><th scope="col">Veces</th><th scope="col">Jugadores</th><th scope="col">Cambio</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="card"><h3>AdMob por formato <span class="muted small"><span class="per"></span></span></h3><div class="table-wrap"><table id="t-formats"><thead><tr><th scope="col">Formato</th><th scope="col">Impresiones</th><th scope="col">Clics</th><th scope="col">Ingresos</th></tr></thead><tbody></tbody></table></div></div>
     </section>
   </main>
 
-  <script type="module" src="app.js?v=202611131419"></script>
+  <script type="module" src="app.js?v=202611171600"></script>
 </body>
 </html>
