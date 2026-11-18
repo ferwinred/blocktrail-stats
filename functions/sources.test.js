@@ -24,3 +24,11 @@ test("parseCsv keeps a quoted comma inside its field", () => {
   assert.equal(rows[0].Installs, "3");
   assert.equal(rows[1].Country, 'Say "hi"');
 });
+
+test("admobAccount picks the account that owns the app", () => {
+  const { admobAccount } = require("./sources");
+  const accounts = [{ name: "accounts/pub-1", publisherId: "pub-1" }, { name: "accounts/pub-9104124048191994", publisherId: "pub-9104124048191994" }];
+  assert.strictEqual(admobAccount(accounts, "ca-app-pub-9104124048191994~7609228329").publisherId, "pub-9104124048191994");
+  assert.strictEqual(admobAccount([accounts[0]], "ca-app-pub-9~1").name, "accounts/pub-1");
+  assert.throws(() => admobAccount(accounts, "ca-app-pub-7~1"));
+});

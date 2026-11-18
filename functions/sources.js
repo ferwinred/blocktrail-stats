@@ -427,13 +427,27 @@ async function playReports(token, bucket) {
 
 // ------------------------------------------------------------ AdMob
 
+/**
+ * The AdMob account that owns the app: its publisher id is the part of the app
+ * id before "~" (ca-app-pub-123~456 -> pub-123). A Google account that sees
+ * several AdMob accounts would otherwise read whichever came first.
+ */
+function admobAccount(accounts, appId) {
+  const pub = (String(appId).match(/^ca-app-(pub-\d+)~/) || [])[1];
+  const mine = pub && accounts.find((a) => a.publisherId === pub || a.name === "accounts/" + pub);
+  if (mine) return mine;
+  if (accounts.length === 1) return accounts[0];
+  throw new SourceError(`Ninguna de las ${accounts.length} cuentas de AdMob es la de la app (${pub || appId}).`);
+}
+
 async function admob(token, appId) {
   const accounts = (await call(token, `${ADMOB_API}/accounts`)).account || [];
   if (!accounts.length) throw new SourceError("La cuenta de Google no tiene acceso a AdMob.");
+  const account = admobAccount(accounts, appId);
   const end = new Date(Date.now() - 86400000);
   const start = new Date(end.getTime() - (HISTORY_DAYS - 1) * 86400000);
   const date = (d) => ({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() });
-  const items = await call(token, `${ADMOB_API}/${accounts[0].name}/networkReport:generate`, {
+  const items = await call(token, `${ADMOB_API}/${account.name}/networkReport:generate`, {
     reportSpec: {
       // Up to yesterday: today's half day would pull the 7-day sums and eCPM down.
       dateRange: { startDate: date(start), endDate: date(end) },
@@ -490,5 +504,5 @@ async function unity(apiKey, orgId, gameId) {
 
 module.exports = {
   analytics, retention, experiment, realtime, playVitals, playReports, admob, unity,
-  parseCsv, cohortRows, levelTable, promoTable, PERIODS, SourceError,
+  parseCsv, admobAccount, cohortRows, levelTable, promoTable, PERIODS, SourceError,
 };

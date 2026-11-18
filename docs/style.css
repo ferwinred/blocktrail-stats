@@ -221,3 +221,11 @@ td.down { color: var(--bad); font-weight: 600; }
 .gems i { width: 10px; height: 10px; border-radius: 3px; display: block; transform: rotate(45deg); }
 .gems i:nth-child(1) { background: #34c759; } .gems i:nth-child(2) { background: #1fb3f0; }
 .gems i:nth-child(3) { background: #a23ee8; } .gems i:nth-child(4) { background: #ffb000; }
+
+/* Sortable headers and CSV export (table.js) */
+th .sort { all: unset; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; border-radius: 4px; }
+th .sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+th .sort::after { content: "↕"; opacity: .35; font-size: 10px; }
+th[aria-sort="ascending"] .sort::after { content: "↑"; opacity: 1; color: var(--accent); }
+th[aria-sort="descending"] .sort::after { content: "↓"; opacity: 1; color: var(--accent); }
+.csv { float: right; margin: -34px 0 0; }

@@ -29,6 +29,9 @@ const ADMOB_APP_ID = defineString("ADMOB_APP_ID", { default: "ca-app-pub-9104124
 const UNITY_ORG_ID = defineString("UNITY_ORG_ID", { default: "" });
 const UNITY_GAME_ID = defineString("UNITY_GAME_ID", { default: "" });
 
+/** Every source the function knows, as accepted in "only". */
+const SOURCE_NAMES = ["realtime", "analytics", "retention", "experiment", "playVitals", "playReports", "admob", "unity"];
+
 /** Sources that are only about revenue: skipped for roles without access to it. */
 const MONEY_SOURCES = ["admob", "unity"];
 
@@ -106,6 +109,9 @@ exports.stats = onCall(
 
     const asked = request.data && request.data.only;
     const only = Array.isArray(asked) ? asked.filter((n) => typeof n === "string") : null;
+    // Names that are not sources are an error of the caller, not something to skip silently.
+    const unknown = (only || []).filter((n) => !SOURCE_NAMES.includes(n));
+    if (unknown.length) throw new HttpsError("invalid-argument", "Fuentes desconocidas: " + unknown.join(", ") + ".");
     const force = !!(request.data && request.data.force);
     const asked_period = Number(request.data && request.data.period);
     const period = sources.PERIODS.includes(asked_period) ? asked_period : 7;

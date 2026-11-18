@@ -64,6 +64,13 @@ una fecha: jugadores, sesiones, minutos, compradores, ingresos y D1 de los que
 empezaron en ese tiempo. Analytics trae además el valor de un jugador por país
 en 90 días (`countryValue`), solo para quien ve ingresos.
 
+### Tablas
+
+Todas las tablas de la página se ordenan por cualquier columna (clic en el
+encabezado; otra vez para invertir) y tienen «Exportar CSV». La lógica está
+en `docs/table.js`, con pruebas en `tests/table.test.mjs`; el panel de
+contenido usa una copia (`tools/admin-dashboard/shared/table.js`).
+
 ### BigQuery
 
 `statsWarehouse` corre cada día a las 7:30 (hora de Bogotá). Con el export de

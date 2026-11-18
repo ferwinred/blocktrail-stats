@@ -1,8 +1,9 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
-import { firebaseConfig } from "./firebase-config.js?v=202611171800";
-import { change, cohortWeeks, datesOf, dayKey, funnel, inWindow, levelRows, SMALL, summary, windowsFor } from "./metrics.js?v=202611171800";
+import { firebaseConfig } from "./firebase-config.js?v=202611181200";
+import { change, cohortWeeks, datesOf, dayKey, funnel, inWindow, levelRows, SMALL, summary, windowsFor } from "./metrics.js?v=202611181200";
+import { enhanceTable } from "./table.js?v=202611181300";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -440,6 +441,10 @@ function drawPlayersChart(daily, installs, w) {
   table.append(thead, tbody);
   $("chart-table").replaceChildren(table);
 }
+
+// Every table sorts by any column and exports to CSV.
+for (const [id, title] of [["t-cohorts", "Retención por semana"], ["t-levels", "Niveles"], ["t-countries", "Países"],
+  ["t-versions", "Versiones"], ["t-events", "Eventos"], ["t-formats", "AdMob por formato"]]) enhanceTable($(id), title);
 
 $("chart-table-toggle").onclick = () => {
   const open = $("chart-table").hidden;
