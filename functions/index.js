@@ -40,6 +40,7 @@ function withoutMoney(ga) {
     totals: { cur: strip(ga.totals.cur), prev: strip(ga.totals.prev) },
     daily: (ga.daily || []).map(strip),
     campaigns: ga.campaigns && ga.campaigns.map(({ revenue, adRevenue, ...rest }) => rest),
+    countryValue: null,
   };
 }
 
@@ -55,7 +56,7 @@ function withDeadline(promise, ms) {
 }
 
 /** How long each answer is reused, in minutes. Play is days behind anyway. */
-const TTL = { realtime: 1, analytics: 10, retention: 60, admob: 30, unity: 30, playVitals: 360, playReports: 360 };
+const TTL = { realtime: 1, analytics: 10, retention: 60, experiment: 30, admob: 30, unity: 30, playVitals: 360, playReports: 360 };
 
 async function allowed(email) {
   if (!email) return false;
@@ -108,6 +109,10 @@ exports.stats = onCall(
     const force = !!(request.data && request.data.force);
     const asked_period = Number(request.data && request.data.period);
     const period = sources.PERIODS.includes(asked_period) ? asked_period : 7;
+    // The experiment is only measured when asked for, with versions and a start date.
+    const ex = request.data && request.data.experiment;
+    const exp = ex && Number.isInteger(ex.control) && Number.isInteger(ex.variant) && /^\d{4}-\d{2}-\d{2}$/.test(String(ex.since))
+      ? { control: ex.control, variant: ex.variant, since: String(ex.since) } : null;
     // Without revenue rights the money sources are not even asked.
     const want = (name) => (!only || only.includes(name)) && (money || !MONEY_SOURCES.includes(name));
 
@@ -135,6 +140,10 @@ exports.stats = onCall(
       realtime: async () => sources.realtime(await google(), GA4_PROPERTY.value()),
       analytics: async () => sources.analytics(await google(), GA4_PROPERTY.value(), period),
       retention: async () => sources.retention(await google(), GA4_PROPERTY.value()),
+      experiment: async () => {
+        if (!exp) throw new Error("Falta el experimento: versiones y fecha de inicio.");
+        return sources.experiment(await google(), GA4_PROPERTY.value(), exp);
+      },
       playVitals: async () => sources.playVitals(await google()),
       playReports: async () => sources.playReports(await google(), PLAY_BUCKET.value()),
       admob: async () => sources.admob(await google(), ADMOB_APP_ID.value()),
@@ -144,12 +153,16 @@ exports.stats = onCall(
       },
     };
 
-    const names = Object.keys(jobs).filter(want);
+    // The experiment is never part of a full load: only asked for by name.
+    const names = Object.keys(jobs).filter((n) => want(n) && (n !== "experiment" || (only && only.includes(n))));
     // Analytics depends on the period, so each period keeps its own cached answer.
-    const key = (n) => (n === "analytics" ? n + "_" + period : n);
+    const key = (n) => (n === "analytics" ? n + "_" + period : n === "experiment" && exp ? `experiment_${exp.control}_${exp.variant}_${exp.since}` : n);
     const results = await Promise.all(names.map((n) => cached(key(n), TTL[n], force, jobs[n])));
     const out = Object.fromEntries(names.map((n, i) => [n, results[i]]));
     if (!money && out.analytics && out.analytics.data) out.analytics = { ...out.analytics, data: withoutMoney(out.analytics.data) };
+    if (!money && out.experiment && out.experiment.data)
+      out.experiment = { ...out.experiment, data: { ...out.experiment.data,
+        groups: out.experiment.data.groups.map(({ purchaseRevenue, adRevenue, ...g }) => g) } };
     return { generated: Date.now(), period, money, sources: out };
   },
 );

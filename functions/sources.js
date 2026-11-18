@@ -118,7 +118,7 @@ async function analytics(token, property, period = 7) {
     .map((name) => ({ name }));
   const eventFilter = (values) => ({ filter: { fieldName: "eventName", inListFilter: { values } } });
 
-  const [daily, totals, events, countries, versions, firstSession, levels, expected, promoRows, campaignRows] = await Promise.all([
+  const [daily, totals, events, countries, versions, firstSession, levels, expected, promoRows, campaignRows, valueRows] = await Promise.all([
     // Both periods by day: the sparklines and the per-day sums (DAU-days) come from here.
     report({ dateRanges: [{ startDate: 2 * period + "daysAgo", endDate: "yesterday" }], dimensions: [{ name: "date" }],
              metrics: ["activeUsers", "newUsers", "sessions", "userEngagementDuration", "purchaseRevenue", "totalPurchasers"].map((name) => ({ name })),
@@ -147,6 +147,10 @@ async function analytics(token, property, period = 7) {
     optional(report, { dateRanges: [cur], dimensions: [{ name: "customUser:active_event" }],
                        metrics: ["activeUsers", "totalPurchasers", "purchaseRevenue", "totalAdRevenue", "userEngagementDuration"].map((name) => ({ name })),
                        limit: 200 }),
+    // What a player is worth by country, over 90 days whatever the period (for LTV against CPI).
+    report({ dateRanges: [{ startDate: "90daysAgo", endDate: "yesterday" }], dimensions: [{ name: "country" }, { name: "countryId" }],
+             metrics: ["activeUsers", "newUsers", "totalPurchasers", "totalRevenue"].map((name) => ({ name })),
+             orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }], limit: 30 }),
   ]);
 
   const t = byRange(totals);
@@ -164,6 +168,7 @@ async function analytics(token, property, period = 7) {
     firstSession: { steps: FIRST_SESSION, cur: usersOf(fs.cur), prev: usersOf(fs.prev) },
     levels: levels && levelTable(levels, expected),
     promotions: promoRows && promoTable(promoRows),
+    countryValue: valueRows.map((r) => ({ country: r.country, code: r.countryId, users: r.activeUsers, newUsers: r.newUsers, buyers: r.totalPurchasers, revenue: r.totalRevenue })),
     campaigns: campaignRows && campaignRows
       .filter((r) => r["customUser:active_event"] && r["customUser:active_event"] !== "(not set)" && r["customUser:active_event"] !== "none")
       .map((r) => ({ id: r["customUser:active_event"], users: r.activeUsers, buyers: r.totalPurchasers,
@@ -206,6 +211,54 @@ function levelTable(rows, expected) {
   }
   return Object.values(by).sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }));
 }
+
+/**
+ * An experiment: the players on the control release (A) against the ones on
+ * the variant (B), told apart by the user property content_pack the game sets
+ * every session, from the day it started. Testers are left out when known.
+ */
+async function experiment(token, property, { control, variant, since }) {
+  const prop = "properties/" + property;
+  const groups = [String(control), String(variant)];
+  const pack = { filter: { fieldName: "customUser:content_pack", inListFilter: { values: groups } } };
+  const both = { andGroup: { expressions: [pack, TESTER_FILTER] } };
+  const run = async (body, filter) => {
+    try { return rowsOf(await call(token, `${DATA_API}/${prop}:runReport`, { ...body, dimensionFilter: filter })); }
+    catch (err) {
+      if (err instanceof SourceError && err.message.startsWith("400") && filter === both)
+        return rowsOf(await call(token, `${DATA_API}/${prop}:runReport`, { ...body, dimensionFilter: pack }));
+      throw err;
+    }
+  };
+  const range = [{ startDate: since, endDate: "yesterday" }];
+  const totals = await run({ dateRanges: range, dimensions: [{ name: "customUser:content_pack" }],
+    metrics: ["activeUsers", "newUsers", "sessions", "userEngagementDuration", "totalPurchasers", "purchaseRevenue", "totalAdRevenue"].map((name) => ({ name })) }, both);
+  // Day-1 return of the players who started during the experiment, per group.
+  const d1 = await Promise.all(groups.map(async (g) => {
+    const one = { filter: { fieldName: "customUser:content_pack", stringFilter: { value: g } } };
+    try {
+      const rows = rowsOf(await call(token, `${DATA_API}/${prop}:runReport`, {
+        dimensions: [{ name: "cohort" }, { name: "cohortNthDay" }],
+        metrics: [{ name: "cohortActiveUsers" }, { name: "cohortTotalUsers" }],
+        dimensionFilter: one,
+        cohortSpec: { cohorts: [{ name: "c", dimension: "firstSessionDate", dateRange: { startDate: since, endDate: "2daysAgo" } }],
+                      cohortsRange: { granularity: "DAILY", startOffset: 0, endOffset: 1 } },
+      }));
+      const day1 = rows.find((r) => Number(r.cohortNthDay) === 1);
+      return { size: day1 ? day1.cohortTotalUsers : rows[0] ? rows[0].cohortTotalUsers : 0, back: day1 ? day1.cohortActiveUsers : 0 };
+    } catch { return null; }
+  }));
+  const of = (g) => totals.find((r) => r["customUser:content_pack"] === g) || {};
+  return {
+    control, variant, since,
+    groups: groups.map((g, i) => ({ version: Number(g), ...pick(of(g)), d1: d1[i] })),
+  };
+}
+
+const pick = (r) => ({
+  users: r.activeUsers || 0, newUsers: r.newUsers || 0, sessions: r.sessions || 0, engagement: r.userEngagementDuration || 0,
+  buyers: r.totalPurchasers || 0, purchaseRevenue: r.purchaseRevenue || 0, adRevenue: r.totalAdRevenue || 0,
+});
 
 /**
  * Daily install cohorts of the last eight weeks, and how many were still active
@@ -436,6 +489,6 @@ async function unity(apiKey, orgId, gameId) {
 }
 
 module.exports = {
-  analytics, retention, realtime, playVitals, playReports, admob, unity,
+  analytics, retention, experiment, realtime, playVitals, playReports, admob, unity,
   parseCsv, cohortRows, levelTable, promoTable, PERIODS, SourceError,
 };

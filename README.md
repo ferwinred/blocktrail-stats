@@ -55,6 +55,15 @@ contenido (el *custom claim* `role`). Los ingresos (AdMob, Unity y las cifras de
 dinero de Analytics) los reciben la lista, los publicadores y los dueños; un
 lector o un editor recibe el resto.
 
+### Experimentos y valor por país
+
+Con `only: ["experiment"]` y `experiment: { control, variant, since }`, la
+función compara a los jugadores de dos versiones de contenido (propiedad de
+usuario `content_pack`, que hay que registrar como dimensión de usuario) desde
+una fecha: jugadores, sesiones, minutos, compradores, ingresos y D1 de los que
+empezaron en ese tiempo. Analytics trae además el valor de un jugador por país
+en 90 días (`countryValue`), solo para quien ve ingresos.
+
 ### BigQuery
 
 `statsWarehouse` corre cada día a las 7:30 (hora de Bogotá). Con el export de
