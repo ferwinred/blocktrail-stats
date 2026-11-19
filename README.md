@@ -6,8 +6,8 @@ Google Play.
 
 > **Las estadísticas se ven en el panel de contenido**, sección Estadísticas
 > (`https://blocktrail-admin.web.app/#stats`), con su inicio de sesión y sus
-> roles. La página que vivía aquí (GitHub Pages y `blocktrail-stats.web.app`)
-> ahora solo redirige allí. Quien estaba en `config/statsAccess` necesita un
+> roles. Es la única: la página que vivía aquí está apagada (GitHub Pages
+> desactivado y el sitio `blocktrail-stats.web.app` deshabilitado). Quien estaba en `config/statsAccess` necesita un
 > rol en el panel (Equipo): lector o editor ven todo menos los ingresos;
 > publicador y dueño, también los ingresos.
 
@@ -146,8 +146,8 @@ npx firebase-tools deploy --only functions:stats
 (partidas, regalos de testers) y se pisarían.
 
 ### 7. Página
-GitHub Pages sirve `docs/` de la rama `main` en
-`https://ferwinred.github.io/blocktrail-stats/`.
+No hay página propia: las estadísticas se ven en el panel de contenido. `docs/`
+solo guarda la lógica compartida (`metrics.js`, `table.js`).
 
 ## Desarrollo
 ```

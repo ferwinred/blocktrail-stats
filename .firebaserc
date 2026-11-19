@@ -1,14 +1,5 @@
 {
   "projects": {
     "default": "bock-quest-game"
-  },
-  "targets": {
-    "bock-quest-game": {
-      "hosting": {
-        "stats": [
-          "blocktrail-stats"
-        ]
-      }
-    }
   }
 }
