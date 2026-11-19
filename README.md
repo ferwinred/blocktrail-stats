@@ -1,12 +1,21 @@
 # BlockTrail Estadísticas
 
-Panel privado con las estadísticas de BlockTrail: jugadores en tiempo real,
+El backend de las estadísticas de BlockTrail: jugadores en tiempo real,
 retención, eventos, ingresos de AdMob y Unity Ads, e instalaciones y fallos de
 Google Play.
 
-- **Página** (`docs/`): HTML y JavaScript en GitHub Pages. No contiene secretos.
-- **Inicio de sesión**: Firebase Auth con Google. Solo entran los correos de la
-  lista `config/statsAccess` en Firestore.
+> **Las estadísticas se ven en el panel de contenido**, sección Estadísticas
+> (`https://blocktrail-admin.web.app/#stats`), con su inicio de sesión y sus
+> roles. La página que vivía aquí (GitHub Pages y `blocktrail-stats.web.app`)
+> ahora solo redirige allí. Quien estaba en `config/statsAccess` necesita un
+> rol en el panel (Equipo): lector o editor ven todo menos los ingresos;
+> publicador y dueño, también los ingresos.
+
+- **Lógica compartida** (`docs/metrics.js`, `docs/table.js`): la aritmética y
+  las tablas, con sus pruebas en `tests/`. El panel usa copias de estos dos
+  archivos (`tools/admin-dashboard/shared/`).
+- **Inicio de sesión**: el del panel (Firebase Auth con Google y el rol de la
+  cuenta). La lista `config/statsAccess` sigue aceptándose en la función.
 - **Backend** (`functions/`): una Cloud Function (`stats`) que comprueba quién
   pregunta, consulta las fuentes y guarda cada respuesta unos minutos en
   Firestore (`statsCache/*`). Si una fuente falla, devuelve su último dato bueno

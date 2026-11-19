@@ -4,7 +4,26 @@
       "source": "functions",
       "codebase": "stats",
       "runtime": "nodejs22",
-      "ignore": ["node_modules", "*.test.js"]
+      "ignore": [
+        "node_modules",
+        "*.test.js"
+      ]
     }
-  ]
+  ],
+  "hosting": {
+    "target": "stats",
+    "public": "docs",
+    "ignore": [
+      "package.json",
+      "*.js",
+      "**/.*"
+    ],
+    "redirects": [
+      {
+        "source": "**",
+        "destination": "https://blocktrail-admin.web.app/#stats",
+        "type": 301
+      }
+    ]
+  }
 }
